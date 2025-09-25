@@ -87,3 +87,33 @@ Both client and server use multi-stage Docker builds for optimized production im
 - **Server**: Maven build → OpenJDK runtime with layered JAR optimization
 
 The application is designed to be deployed on EC2 with NGINX handling both static file serving and API proxying to the Spring Boot backend.
+
+## Quick Start
+
+### Local Development with Docker Compose
+```bash
+# Build and run both services
+docker compose up --build
+
+# Access the application
+# Frontend: http://localhost:3000
+# Backend API: http://localhost:8080/hello
+```
+
+### Individual Development
+```bash
+# Run server (requires Java 21)
+cd server
+./mvnw spring-boot:run
+
+# Run client (requires Node.js)
+cd client
+npm install
+npm run dev
+```
+
+### Project Structure Summary
+- **Frontend**: Next.js with TypeScript, served by NGINX in production
+- **Backend**: Spring Boot with Maven, providing REST API
+- **Communication**: Frontend calls backend via `/hello` endpoint
+- **Deployment**: Containerized services with Docker Compose
