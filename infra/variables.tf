@@ -13,9 +13,9 @@ variable "ec2_config" {
   })
 
   default = {
-    ami           = "ami-0360c520857e3138f" // ubuntu "ami-0360c520857e3138f"
+    ami           = "ami-0360c520857e3138f"
     instance_type = "t2.micro"
-    storage_size  = 4 // GB
+    storage_size  = 8 // GB
     storage_type  = "gp3"
     ssh_key_name  = "cloud-computing-kp"
   }

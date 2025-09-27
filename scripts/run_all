@@ -1,0 +1,95 @@
+#!/bin/bash
+set -euo pipefail
+
+PUBLIC_IP=$(cd ../infra && terraform output --raw public_ip)
+
+# ----------------------------
+# Sync frontend and backend
+# ----------------------------
+rsync -az --delete \
+  --exclude node_modules \
+  --exclude .git \
+  ../client/ ubuntu@${PUBLIC_IP}:/home/ubuntu/client/
+
+rsync -az --delete \
+  --exclude target \
+  --exclude .git \
+  ../server/ ubuntu@${PUBLIC_IP}:/home/ubuntu/server/
+
+scp -q ../compose.yaml ubuntu@${PUBLIC_IP}:/home/ubuntu/
+
+# ----------------------------
+# Setup Docker & run compose with SSL certs
+# ----------------------------
+ssh ubuntu@${PUBLIC_IP} <<'EOF'
+set -e
+
+# Install Docker if not present
+if ! command -v docker >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo apt-get install -y ca-certificates curl
+    sudo install -m 0755 -d /etc/apt/keyrings
+    sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+      $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
+      sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    sudo apt-get update
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    sudo systemctl start docker
+    sudo systemctl enable docker
+    sudo usermod -aG docker ubuntu
+fi
+
+# Install certbot if not present
+if ! command -v certbot >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo apt-get install -y snapd
+    sudo snap install core; sudo snap refresh core
+    sudo snap install --classic certbot
+    sudo ln -sf /snap/bin/certbot /usr/bin/certbot
+fi
+
+# Create directories for SSL
+mkdir -p /home/ubuntu/certbot/conf
+mkdir -p /home/ubuntu/certbot/www
+
+# Check if SSL certificate exists
+if [ ! -d "/etc/letsencrypt/live/test.ettukube.com" ]; then
+    echo "Getting SSL certificate..."
+    
+    # Stop any running containers that might use port 80
+    sudo docker compose down || true
+    
+    # Get certificate using standalone mode
+    sudo certbot certonly --standalone \
+        -d test.ettukube.com \
+        --non-interactive \
+        --agree-tos \
+        -m drshubov@dons.usfca.edu
+    
+    echo "SSL certificate obtained successfully"
+fi
+
+# Copy certificates to docker volume location
+sudo cp -r /etc/letsencrypt/* /home/ubuntu/certbot/conf/
+sudo chown -R ubuntu:ubuntu /home/ubuntu/certbot/
+
+# Start Docker Compose
+cd /home/ubuntu
+sudo docker compose up --build -d
+
+echo "Deployment complete! Your site should be available at:"
+echo "https://test.ettukube.com"
+
+# Show running containers
+sudo docker compose ps
+
+# Set up certificate renewal cron job
+(crontab -l 2>/dev/null; echo "0 12 * * * sudo certbot renew --quiet && sudo cp -r /etc/letsencrypt/* /home/ubuntu/certbot/conf/ && docker compose restart frontend") | crontab -
+
+echo "SSL certificate auto-renewal configured"
+EOF
