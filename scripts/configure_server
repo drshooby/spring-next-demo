@@ -27,10 +27,28 @@ wait_for_nginx() {
     exit 1
 }
 
-# Docker installation check (simplified)
+# Docker installation check
 if ! command -v docker &> /dev/null; then
-    echo "Docker not found. Please install Docker first."
-    exit 1
+    echo "Docker not installed. Installing..."
+    echo ""
+    # Add Docker's official GPG key:
+    sudo apt-get update
+    sudo apt-get install ca-certificates curl
+    sudo install -m 0755 -d /etc/apt/keyrings
+    sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+    # Add the repository to Apt sources:
+    echo \
+    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+    $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
+    sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    sudo apt-get update
+
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+    sudo systemctl start docker
+    echo "Docker installed."
 fi
 
 # Create necessary directories
@@ -52,14 +70,7 @@ if [ ! -d "/home/ubuntu/certbot/conf/live/${DEPLOY_URL}" ]; then
     
     # Step 3: Wait for containers to be ready
     echo "Waiting for containers to start..."
-    sleep 5
-    
-    # Simple health check
-    if ! curl -s -o /dev/null http://localhost; then
-        echo "Warning: Nginx may not be fully ready, but continuing..."
-    else
-        echo "Nginx is ready."
-    fi
+    wait_for_nginx
     
     # Step 4: Run Certbot challenge
     echo "Running Certbot certificate challenge..."
@@ -85,7 +96,6 @@ if [ ! -d "/home/ubuntu/certbot/conf/live/${DEPLOY_URL}" ]; then
     # Step 5: Stop containers before switching to HTTPS config
     echo "Stopping containers to switch to HTTPS configuration..."
     sudo docker compose down
-    
 else
     echo "SSL certificate already exists for ${DEPLOY_URL}"
 fi
@@ -101,17 +111,9 @@ sudo docker compose up --build -d
 
 # Step 8: Verify deployment
 echo "Verifying deployment..."
-sleep 5
+wait_for_nginx
 sudo docker compose ps
 
-# Step 9: Setup certificate renewal
-echo "Setting up certificate auto-renewal..."
-CRON_JOB="0 12 * * * cd /home/ubuntu && sudo docker compose run --rm certbot renew --webroot -w /var/www/certbot && sudo docker compose restart frontend"
-if ! crontab -l 2>/dev/null | grep -qF "certbot renew"; then
-    (crontab -l 2>/dev/null; echo "${CRON_JOB}") | crontab -
-    echo "Certificate auto-renewal cron job configured."
-else
-    echo "Certificate renewal cron job already exists."
-fi
+# Step 9 (optional): add cron auto-renewal for certs...
 
 echo "Remote deployment completed successfully!"

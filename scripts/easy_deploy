@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# --- User Configuration Prompt ---
+# Get user input
 echo "Please enter the deployment details for your project."
 echo "----------------------------------------------------"
 
@@ -19,7 +19,7 @@ if [ -z "${USER_EMAIL}" ]; then
     exit 1
 fi
 
-# --- Confirmation Prompt ---
+# Confirmation
 echo ""
 echo "You have entered the following details:"
 echo "-----------------------------------"
@@ -36,10 +36,10 @@ if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
 fi
 
 echo ""
-# --- Main Script ---
+# Main script start
 echo "--- Starting Easy Automated Deployment for ${DEPLOY_URL} ---"
 
-# Get public IP address from Terraform output
+# Step 1: Get public IP address from Terraform output OR input manually
 echo "Fetching public IP from Terraform..."
 PUBLIC_IP=$(cd ../infra && terraform output --raw public_ip)
 if [ -z "${PUBLIC_IP}" ]; then
@@ -49,25 +49,22 @@ fi
 echo "Public IP found: ${PUBLIC_IP}"
 echo ""
 
-# --- NGINX Configuration Generation ---
 echo "Generating dynamic Nginx configuration files..."
 
-# 1. Generate the FINAL (HTTPS + HTTP Redirect) Nginx config
+# Step 2.1: Generate the FINAL (HTTPS + HTTP Redirect) Nginx config
 FINAL_CONF_FILE="nginx.conf"
 sed "s|DEPLOY_URL_PLACEHOLDER|${DEPLOY_URL}|g" "../nginx_templates/nginx-https.conf.tmpl" > "nginx.conf"
 echo "Generated ${FINAL_CONF_FILE}"
 
-# 2. Generate the TEMPORARY (HTTP-only) Nginx config
+# Step 2.2: Generate the TEMPORARY (HTTP-only) Nginx config
 TEMP_CONF_FILE="nginx-http-only.conf"
 sed "s|DEPLOY_URL_PLACEHOLDER|${DEPLOY_URL}|g" "../nginx_templates/nginx-http-only.conf.tmpl" > "nginx-http-only.conf"
 echo "Generated ${TEMP_CONF_FILE}"
 
-# 3. Create initial nginx-active.conf (will be overwritten by remote script)
-echo "Creating initial nginx-active.conf..."
-cp ${TEMP_CONF_FILE} nginx-active.conf
+# Note: nginx-active.conf will be created on the remote server
 echo ""
 
-# Sync application files
+# Step 3: Sync files
 echo "Syncing application code to remote server..."
 rsync -az --delete \
   --exclude node_modules \
@@ -90,18 +87,17 @@ scp -q ../compose.yaml ubuntu@${PUBLIC_IP}:/home/ubuntu/
 scp ./configure_server ubuntu@${PUBLIC_IP}:/home/ubuntu/
 scp ${FINAL_CONF_FILE} ubuntu@${PUBLIC_IP}:/home/ubuntu/
 scp ${TEMP_CONF_FILE} ubuntu@${PUBLIC_IP}:/home/ubuntu/
-scp nginx-active.conf ubuntu@${PUBLIC_IP}:/home/ubuntu/
 echo "Configuration files pushed successfully."
 echo ""
 
-# Execute remote deployment script
+# Step 4: Execute remote script
 echo "Executing remote deployment script..."
 ssh -t ubuntu@${PUBLIC_IP} "chmod +x /home/ubuntu/configure_server && /home/ubuntu/configure_server ${DEPLOY_URL} ${USER_EMAIL}"
 
 echo "--- Deployment complete! ---"
 echo "Your site should be available at: https://${DEPLOY_URL}"
 
-# Cleanup local generated files
+# Step 5: Cleanup
 echo "Cleaning up local generated files..."
-rm -f ${FINAL_CONF_FILE} ${TEMP_CONF_FILE} nginx-active.conf
+rm -f ${FINAL_CONF_FILE} ${TEMP_CONF_FILE}
 echo "Local cleanup complete."

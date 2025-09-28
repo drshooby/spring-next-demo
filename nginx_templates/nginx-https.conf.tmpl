@@ -1,7 +1,7 @@
-# -------------------------------------------------------------------
-# HTTP Server Block (Port 80)
-# Handles Certbot challenge and redirects all traffic to HTTPS.
-# -------------------------------------------------------------------
+# Edit the HTTPS block in this file to add your paths (see /hello example block).
+# TEST LOCALLY FIRST WITH DOCKER (just use the HTTP block since you won't have HTTPS on localhost)!!!
+
+# HTTP server block - redirects to HTTPS
 server {
     listen 80;
     server_name DEPLOY_URL_PLACEHOLDER;
@@ -19,10 +19,7 @@ server {
     }
 }
 
-# -------------------------------------------------------------------
-# HTTPS Server Block (Port 443)
-# Serves the static client app and proxies API requests.
-# -------------------------------------------------------------------
+# HTTPS server block for reverse proxy
 server {
     listen 443 ssl http2;
     server_name DEPLOY_URL_PLACEHOLDER; # Automatically substituted by deploy.sh
