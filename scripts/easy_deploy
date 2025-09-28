@@ -1,0 +1,107 @@
+#!/bin/bash
+set -euo pipefail
+
+# --- User Configuration Prompt ---
+echo "Please enter the deployment details for your project."
+echo "----------------------------------------------------"
+
+read -p "Enter the full deployment URL (e.g., example.com): " DEPLOY_URL
+# Check for empty input
+if [ -z "${DEPLOY_URL}" ]; then
+    echo "Error: Deployment URL cannot be empty."
+    exit 1
+fi
+
+read -p "Enter your email for SSL certificate registration: " USER_EMAIL
+# Check for empty input
+if [ -z "${USER_EMAIL}" ]; then
+    echo "Error: User email cannot be empty."
+    exit 1
+fi
+
+# --- Confirmation Prompt ---
+echo ""
+echo "You have entered the following details:"
+echo "-----------------------------------"
+echo "Deployment URL:    ${DEPLOY_URL}"
+echo "Certbot Email:     ${USER_EMAIL}"
+echo "-----------------------------------"
+echo ""
+
+read -p "Do you want to proceed with these details? [Y/n] " -r
+# Check for 'y' or 'Y' and exit if not confirmed
+if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+    echo "Aborting deployment."
+    exit 1
+fi
+
+echo ""
+# --- Main Script ---
+echo "--- Starting Easy Automated Deployment for ${DEPLOY_URL} ---"
+
+# Get public IP address from Terraform output
+echo "Fetching public IP from Terraform..."
+PUBLIC_IP=$(cd ../infra && terraform output --raw public_ip)
+if [ -z "${PUBLIC_IP}" ]; then
+    echo "Error: Could not get public IP from Terraform. Is 'terraform apply' complete?"
+    exit 1
+fi
+echo "Public IP found: ${PUBLIC_IP}"
+echo ""
+
+# --- NGINX Configuration Generation ---
+echo "Generating dynamic Nginx configuration files..."
+
+# 1. Generate the FINAL (HTTPS + HTTP Redirect) Nginx config
+FINAL_CONF_FILE="nginx.conf"
+sed "s|DEPLOY_URL_PLACEHOLDER|${DEPLOY_URL}|g" "../nginx_templates/nginx-https.conf.tmpl" > "nginx.conf"
+echo "Generated ${FINAL_CONF_FILE}"
+
+# 2. Generate the TEMPORARY (HTTP-only) Nginx config
+TEMP_CONF_FILE="nginx-http-only.conf"
+sed "s|DEPLOY_URL_PLACEHOLDER|${DEPLOY_URL}|g" "../nginx_templates/nginx-http-only.conf.tmpl" > "nginx-http-only.conf"
+echo "Generated ${TEMP_CONF_FILE}"
+
+# 3. Create initial nginx-active.conf (will be overwritten by remote script)
+echo "Creating initial nginx-active.conf..."
+cp ${TEMP_CONF_FILE} nginx-active.conf
+echo ""
+
+# Sync application files
+echo "Syncing application code to remote server..."
+rsync -az --delete \
+  --exclude node_modules \
+  --exclude .git \
+  --exclude .next \
+  --exclude out \
+  ../client/ ubuntu@${PUBLIC_IP}:/home/ubuntu/client/
+
+rsync -az --delete \
+  --exclude target \
+  --exclude .git \
+  --exclude node_modules \
+  ../server/ ubuntu@${PUBLIC_IP}:/home/ubuntu/server/
+echo "Application code synced successfully."
+echo ""
+
+# Push deployment files
+echo "Pushing deployment configuration files to remote server..."
+scp -q ../compose.yaml ubuntu@${PUBLIC_IP}:/home/ubuntu/
+scp ./configure_server ubuntu@${PUBLIC_IP}:/home/ubuntu/
+scp ${FINAL_CONF_FILE} ubuntu@${PUBLIC_IP}:/home/ubuntu/
+scp ${TEMP_CONF_FILE} ubuntu@${PUBLIC_IP}:/home/ubuntu/
+scp nginx-active.conf ubuntu@${PUBLIC_IP}:/home/ubuntu/
+echo "Configuration files pushed successfully."
+echo ""
+
+# Execute remote deployment script
+echo "Executing remote deployment script..."
+ssh -t ubuntu@${PUBLIC_IP} "chmod +x /home/ubuntu/configure_server && /home/ubuntu/configure_server ${DEPLOY_URL} ${USER_EMAIL}"
+
+echo "--- Deployment complete! ---"
+echo "Your site should be available at: https://${DEPLOY_URL}"
+
+# Cleanup local generated files
+echo "Cleaning up local generated files..."
+rm -f ${FINAL_CONF_FILE} ${TEMP_CONF_FILE} nginx-active.conf
+echo "Local cleanup complete."

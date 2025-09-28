@@ -40,10 +40,10 @@ RUN rm -rf ./*
 # Copy static site output from builder
 COPY --from=builder /app/out ./
 
-# Copy custom nginx config
-COPY ./nginx.conf /etc/nginx/conf.d/default.conf
+# REMOVE THIS LINE. The nginx.conf will be mounted via docker-compose.
+# COPY ./nginx.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 80
+EXPOSE 80 443
 
 # Start NGINX in the foreground
 CMD ["nginx", "-g", "daemon off;"]

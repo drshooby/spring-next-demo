@@ -1,0 +1,61 @@
+# -------------------------------------------------------------------
+# HTTP Server Block (Port 80)
+# Handles Certbot challenge and redirects all traffic to HTTPS.
+# -------------------------------------------------------------------
+server {
+    listen 80;
+    server_name DEPLOY_URL_PLACEHOLDER;
+
+    # Location for Certbot's ACME challenge
+    # This is CRUCIAL for certificate issuance and renewal.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        try_files $uri =404;
+    }
+
+    # Redirect all other HTTP traffic to HTTPS (301 Permanent Redirect)
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# -------------------------------------------------------------------
+# HTTPS Server Block (Port 443)
+# Serves the static client app and proxies API requests.
+# -------------------------------------------------------------------
+server {
+    listen 443 ssl http2;
+    server_name DEPLOY_URL_PLACEHOLDER; # Automatically substituted by deploy.sh
+    
+    # SSL certificate configuration (paths point to the Certbot volume mount)
+    ssl_certificate /etc/letsencrypt/live/DEPLOY_URL_PLACEHOLDER/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/DEPLOY_URL_PLACEHOLDER/privkey.pem;
+
+    # Standard SSL security hardening
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers 'TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256';
+    ssl_prefer_server_ciphers off;
+
+    # Static files root (from Stage 3 of your Dockerfile)
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Location block for the static frontend application
+    location / {
+        # Standard pattern for Single Page Applications (SPAs)
+        # Tries to serve the file directly, otherwise falls back to index.html
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Location block to proxy API requests to the server container
+    location /hello {
+        # proxy_pass targets the Docker service name 'server' on its exposed port 8080
+        proxy_pass http://server:8080/hello;
+        
+        # Preserve host headers and original IP information
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

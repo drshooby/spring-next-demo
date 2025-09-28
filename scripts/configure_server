@@ -1,0 +1,117 @@
+#!/bin/bash
+set -euo pipefail
+
+DEPLOY_URL=$1
+USER_EMAIL=$2
+
+echo "Running remote deployment script for ${DEPLOY_URL}..."
+
+# Function to check if Nginx is ready
+wait_for_nginx() {
+    echo "Waiting for Nginx to be ready..."
+    local attempts=15
+    local i=0
+    while [ $i -lt $attempts ]; do
+        # Try multiple approaches to check if Nginx is ready
+        if curl -s -o /dev/null -w "%{http_code}" http://localhost | grep -q "200\|404\|301\|302"; then
+            echo "Nginx is ready."
+            return 0
+        fi
+
+        echo "Attempt $((i+1))/$attempts: Nginx not ready yet..."
+        sleep 2
+        i=$((i+1))
+    done
+    echo "Error: Nginx failed to become ready after 30 seconds."
+    sudo docker compose logs frontend
+    exit 1
+}
+
+# Docker installation check (simplified)
+if ! command -v docker &> /dev/null; then
+    echo "Docker not found. Please install Docker first."
+    exit 1
+fi
+
+# Create necessary directories
+echo "Setting up directories..."
+mkdir -p /home/ubuntu/certbot/conf
+mkdir -p /home/ubuntu/certbot/www
+
+# Check if SSL certificate exists
+if [ ! -d "/home/ubuntu/certbot/conf/live/${DEPLOY_URL}" ]; then
+    echo "SSL certificate not found. Obtaining certificate..."
+    
+    # Step 1: Use the HTTP-only config for Certbot challenge
+    echo "Using HTTP-only configuration for certificate challenge..."
+    cp /home/ubuntu/nginx-http-only.conf /home/ubuntu/nginx-active.conf
+    
+    # Step 2: Start containers with HTTP-only config
+    echo "Starting containers for Certbot challenge..."
+    sudo docker compose up -d frontend server
+    
+    # Step 3: Wait for containers to be ready
+    echo "Waiting for containers to start..."
+    sleep 5
+    
+    # Simple health check
+    if ! curl -s -o /dev/null http://localhost; then
+        echo "Warning: Nginx may not be fully ready, but continuing..."
+    else
+        echo "Nginx is ready."
+    fi
+    
+    # Step 4: Run Certbot challenge
+    echo "Running Certbot certificate challenge..."
+    sudo docker compose run --rm certbot certonly \
+        --webroot \
+        -w /var/www/certbot \
+        -d "${DEPLOY_URL}" \
+        --non-interactive \
+        --agree-tos \
+        -m "${USER_EMAIL}" \
+        --force-renewal
+    
+    CERTBOT_EXIT_CODE=$?
+    
+    if [ ${CERTBOT_EXIT_CODE} -ne 0 ]; then
+        echo "Error: Certbot failed to obtain certificates."
+        sudo docker compose logs certbot
+        exit 1
+    fi
+    
+    echo "SSL certificate obtained successfully."
+    
+    # Step 5: Stop containers before switching to HTTPS config
+    echo "Stopping containers to switch to HTTPS configuration..."
+    sudo docker compose down
+    
+else
+    echo "SSL certificate already exists for ${DEPLOY_URL}"
+fi
+
+# Step 6: Switch to HTTPS configuration
+echo "Switching to HTTPS configuration..."
+cp /home/ubuntu/nginx.conf /home/ubuntu/nginx-active.conf
+
+# Step 7: Start final deployment with HTTPS
+echo "Starting final deployment with HTTPS..."
+cd /home/ubuntu
+sudo docker compose up --build -d
+
+# Step 8: Verify deployment
+echo "Verifying deployment..."
+sleep 5
+sudo docker compose ps
+
+# Step 9: Setup certificate renewal
+echo "Setting up certificate auto-renewal..."
+CRON_JOB="0 12 * * * cd /home/ubuntu && sudo docker compose run --rm certbot renew --webroot -w /var/www/certbot && sudo docker compose restart frontend"
+if ! crontab -l 2>/dev/null | grep -qF "certbot renew"; then
+    (crontab -l 2>/dev/null; echo "${CRON_JOB}") | crontab -
+    echo "Certificate auto-renewal cron job configured."
+else
+    echo "Certificate renewal cron job already exists."
+fi
+
+echo "Remote deployment completed successfully!"
