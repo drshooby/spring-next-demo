@@ -1,3 +1,20 @@
+/**
+* security_groups.tf
+* ----------------------------
+* Purpose:
+*   This Terraform file defines the security groups (firewall rules) used by the EC2 instance.
+*   Each group controls specific types of network traffic into or out of the server.
+*
+* What it does:
+*   - Allows the instance to connect to the internet for updates.
+*   - Restricts SSH access to your IP only.
+*   - Opens HTTP and HTTPS ports for web access.
+*/
+
+
+# ----------------------------
+# Allows all outbound traffic (e.g., OS updates, package installs)
+# ----------------------------
 resource "aws_security_group" "outgoing_all" {
   name        = "outgoing to the internet"
   description = "security group that allows updates"
@@ -12,6 +29,10 @@ resource "aws_security_group" "outgoing_all" {
   }
 }
 
+
+# ----------------------------
+# Allows SSH access only from your IP address (for secure management)
+# ----------------------------
 resource "aws_security_group" "ssh_my_ip" {
   name        = "ssh from my ip"
   description = "security group that only allows ssh access through my ip"
@@ -26,6 +47,11 @@ resource "aws_security_group" "ssh_my_ip" {
   }
 }
 
+
+# ----------------------------
+# Allows HTTP (port 80) and HTTPS (port 443) traffic from the internet
+# for serving web content publicly
+# ----------------------------
 resource "aws_security_group" "server_http" {
   name        = "server access from the internet"
   description = "security group that allows http/s incoming connections from the internet"
