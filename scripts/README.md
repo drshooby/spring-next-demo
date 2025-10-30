@@ -56,7 +56,7 @@ Before using `easy_deploy`, make sure you have:
 
 ### 1. Run the Easy Deploy Script
 
-From your local machine (in the `deploy` folder):
+From your local machine (in the `scripts` folder):
 
 ```bash
 chmod +x easy_deploy
