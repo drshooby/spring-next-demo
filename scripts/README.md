@@ -44,10 +44,10 @@ Before using `easy_deploy`, make sure you have:
   ├── client/ # Frontend code
   ├── server/ # Backend code
   ├── scripts/
-  ├   ├── easy_deploy # Local deploy script
-  ├   ├── configure_server # Remote deploy script
-  └── nginx_templates/ # Nginx config templates
-  ├── compose.yaml # Docker Compose configuration
+     ├── easy_deploy # Local deploy script
+     ├── configure_server # Remote deploy script
+  ├── nginx_templates/ # Nginx config templates
+  └── compose.yaml # Docker Compose configuration
 ```
 
 ---
